@@ -23,6 +23,29 @@ mkdirSync(outputDir, { recursive: true });
 const source = join(botDir, "VIDEO.json");
 const target = join(outputDir, "VIDEO.json");
 
+// Validate before handing anything in: VIDEO.json must be JSON carrying a
+// plausible TikTok video address. A missing or malformed address fails
+// loudly here instead of handing the house something it cannot score.
+let videoUrl: string;
+try {
+  const parsed = JSON.parse(readFileSync(source, "utf8")) as { url?: unknown };
+  if (typeof parsed.url !== "string") {
+    throw new Error('VIDEO.json has no string "url" field');
+  }
+  const address = new URL(parsed.url);
+  const isVideoAddress =
+    address.protocol === "https:" &&
+    address.hostname.endsWith("tiktok.com") &&
+    /^\/@[^/]+\/video\/\d+$/.test(address.pathname);
+  if (!isVideoAddress) {
+    throw new Error(`VIDEO.json url is not a TikTok video address: ${parsed.url}`);
+  }
+  videoUrl = parsed.url;
+} catch (err) {
+  console.error(`invalid VIDEO.json: ${(err as Error).message}`);
+  process.exit(1);
+}
+
 try {
   copyFileSync(source, target);
 } catch (err) {
@@ -34,6 +57,14 @@ try {
 const handed = readFileSync(target);
 if (!handed.equals(readFileSync(source))) {
   console.error("VIDEO.json copy does not match the repository file");
+  process.exit(1);
+}
+
+// …and confirm the handed-in copy still names the address validated above,
+// so a silent rewrite between validation and hand-in cannot slip through.
+const handedUrl = (JSON.parse(handed.toString("utf8")) as { url?: unknown }).url;
+if (handedUrl !== videoUrl) {
+  console.error("VIDEO.json copy names a different address than the validated one");
   process.exit(1);
 }
 console.log(`VIDEO.json handed in (${handed.length} bytes)`);
